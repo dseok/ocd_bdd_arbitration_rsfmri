@@ -1,0 +1,8 @@
+x,y,z,rad,name
+-27,-19,4,5,putamen_l
+33,-10,1,5,putamen_r
+-9,8,55,5,sma_l
+9,8,55,5,sma_r
+-3,38,-11,5,ofc
+9,15,3,5,caudate_r
+-9,15,3,5,caudate_l

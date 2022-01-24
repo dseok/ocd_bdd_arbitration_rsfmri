@@ -1,0 +1,110 @@
+---
+title: "R Notebook"
+---
+
+Continuous association with symptoms
+
+```{r}
+library(rstudioapi)
+library(sjPlot)
+library(dplyr)
+library(car)
+library(ggplot2)
+rm(list=ls())
+data_root <- file.path(gsub('ocd_adult.*', 'ocd_adult', getActiveDocumentContext()$path), 'data')
+
+roiset.name <- 'arbitration_rois'
+#roiset.name <- 'additional_rois'
+
+decvars <- read.csv(file.path(data_root, 'dec', paste0('summary_', roiset.name, '.csv')), stringsAsFactors=FALSE)
+demovars <- read.csv(file.path(data_root, 'metadata/demovars.csv'), stringsAsFactors=FALSE)
+clinvars <- read.csv(file.path(data_root, 'metadata/clinvars.csv'), stringsAsFactors=FALSE)
+motionvars <- read.csv(file.path(data_root, 'metadata/motionvars.csv'), stringsAsFactors=FALSE)
+
+# summarize dec
+# first, drop first 4 timepoints
+decvars <- decvars[decvars$tp > 4,]
+
+# summarize
+links <- colnames(decvars)[-c(1:2)]
+decvars.mean <- decvars %>%
+    group_by(sub) %>%
+    summarize_at(links, mean)
+colnames(decvars.mean)[-1] <- paste0('mean_', links)
+
+decvars.sd <- decvars %>%
+    group_by(sub) %>%
+    summarize_at(links, sd)
+colnames(decvars.sd)[-1] <- paste0('sd_', links)
+
+# merge
+fulldata <- merge(demovars, clinvars, by.x='sub', by.y='sub')
+fulldata <- merge(fulldata, motionvars, by.x='sub', by.y='sub')
+fulldata <- merge(fulldata, decvars.mean, by.x='sub', by.y='sub')
+fulldata <- merge(fulldata, decvars.sd, by.x='sub', by.y='sub')
+
+fulldata <- fulldata[fulldata$group=='OCD',]
+
+# for convenience
+links <- c('vlpfc_l.putamen_posterior_l_1', 'vlpfc_r.putamen_posterior_l_2', 'fpc_r.putamen_posterior_r')
+#links <- c('sma_l.putamen_l', 'sma_r.putamen_r')
+#links <- c('caudate_r.ofc', 'caudate_l.ofc')
+
+# add medication
+fulldata$medicated <- ifelse(fulldata$medication %in% c(NA, 'none'), FALSE, TRUE)
+
+symps <- c('ybocs', 'madrs', 'hama')
+```
+
+Mean DEC, Multiple linear regression
+```{r}
+for (symp in symps) {
+    onlinks <- paste0('mean_', links)
+    lm1 <- lm(paste0(symp, '~', paste(onlinks, collapse='+')), data=fulldata)
+    lmsum <- summary(lm1)
+    print(symp)
+    print(lmsum)
+    
+    for (link in onlinks) {
+        pval <- lmsum$coefficients[link, 4]
+        p <- ggplot(fulldata, aes_string(x=link, y=symp)) +
+            geom_point() +
+            ggtitle(paste(link, symp))
+        print(p)
+        print(cor.test(fulldata[,link], fulldata[,symp]))
+    }
+}
+```
+
+SD DEC.
+```{r}
+for (symp in symps) {
+    onlinks <- paste0('sd_', links)
+    lm1 <- lm(paste0(symp, '~', paste(onlinks, collapse='+')), data=fulldata)
+    print(symp)
+    print(summary(lm1))
+}
+```
+
+```{r}
+# just calculate correlation for L vlPFC -> L posterolateral putamen
+cor.test(fulldata$ybocs, fulldata$mean_vlpfc_l.putamen_posterior_l_1)
+cor.test(fulldata$madrs, fulldata$mean_vlpfc_l.putamen_posterior_l_1)
+cor.test(fulldata$hama, fulldata$mean_vlpfc_l.putamen_posterior_l_1)
+```
+
+Iteraction with medication (OCD only)
+```{r}
+ondata <- fulldata
+ondata$medicated <- as.factor(ondata$medicated)
+lm1 <- lm(ybocs ~ mean_vlpfc_l.putamen_posterior_l_1*medicated, ondata)
+summary(lm1)
+plot_model(lm1, type='int', show.data=TRUE)
+
+ondata$medicated <- as.logical(ondata$medicated)
+cor.test(ondata$ybocs[ondata$medicated], ondata$mean_vlpfc_l.putamen_posterior_l_1[ondata$medicated])
+cor.test(ondata$ybocs[!ondata$medicated], ondata$mean_vlpfc_l.putamen_posterior_l_1[!ondata$medicated])
+
+```
+
+

@@ -1,0 +1,107 @@
+---
+title: "R Notebook"
+---
+
+Baseline group differences.
+
+```{r}
+library(rstudioapi)
+library(sjPlot)
+library(dplyr)
+library(ggplot2)
+library(plotly)
+library(car)
+library(effectsize)
+rm(list=ls())
+data_root <- file.path(gsub('ocd_adult.*', 'ocd_adult', getActiveDocumentContext()$path), 'data')
+
+roiset.name <- 'arbitration_rois'
+#roiset.name <- 'additional_rois'
+
+decvars <- read.csv(file.path(data_root, 'dec', paste0('summary_', roiset.name, '.csv')), stringsAsFactors=FALSE)
+demovars <- read.csv(file.path(data_root, 'metadata/demovars.csv'), stringsAsFactors=FALSE)
+motionvars <- read.csv(file.path(data_root, 'metadata/motionvars.csv'), stringsAsFactors=FALSE)
+
+# summarize dec
+# first, drop first 4 timepoints
+decvars <- decvars[decvars$tp > 4,]
+
+# summarize
+links <- colnames(decvars)[-c(1:2)]
+decvars.mean <- decvars %>%
+    group_by(sub) %>%
+    summarize_at(links, mean)
+colnames(decvars.mean)[-1] <- paste0('mean_', links)
+
+decvars.sd <- decvars %>%
+    group_by(sub) %>%
+    summarize_at(links, sd)
+colnames(decvars.sd)[-1] <- paste0('sd_', links)
+
+# merge
+fulldata <- merge(demovars, motionvars, by.x='sub', by.y='sub')
+fulldata <- merge(fulldata, decvars.mean, by.x='sub', by.y='sub')
+fulldata <- merge(fulldata, decvars.sd, by.x='sub', by.y='sub')
+
+# misc
+links <- c('vlpfc_l.putamen_posterior_l_1', 'vlpfc_r.putamen_posterior_l_2', 'fpc_r.putamen_posterior_r')
+#links <- c('sma_l.putamen_l', 'sma_r.putamen_r')
+#links <- c('caudate_r.ofc', 'caudate_l.ofc')
+```
+
+MANCOVAs for mean
+```{r}
+onlinks <- paste0('mean_', links)
+lm1 <- lm(paste0('cbind(', paste(onlinks, collapse=', '), ') ~ group + age + gender + dvars'), data=fulldata)
+print(Anova(lm1, type=2))
+
+```
+
+MANCOVAs for sd
+```{r}
+onlinks <- paste0('sd_', links)
+lm1 <- lm(paste0('cbind(', paste(onlinks, collapse=', '), ') ~ group + age + gender + dvars'), data=fulldata)
+print(Anova(lm1, type=2))
+
+```
+
+Iterate over individual connections - mean
+```{r}
+# by summarizing
+for (link in links) {
+    lm1 <- lm(paste0('mean_', link, '~ group + age + gender + dvars'), data=fulldata)
+    lmsum <- summary(lm1)
+    print(link)
+    print(lmsum)
+    
+    p <- ggplot(fulldata, aes_string(x='group', y=paste0('mean_', link))) +
+        geom_boxplot() +
+        ggtitle(paste0('mean_', link))
+    print(p)
+}
+```
+
+Iterate over individual connections - SD
+```{r}
+# sd
+for (link in links) {
+    lm1 <- lm(paste0('sd_', link, '~ group + age + gender + dvars'), data=fulldata)
+    lmsum <- summary(lm1)
+    print(link)
+    print(lmsum)
+    
+    p <- ggplot(fulldata, aes_string(x='group', y=paste0('sd_', link))) +
+        geom_boxplot() +
+        ggtitle(paste0('sd_', link))
+    print(p)
+}
+```
+
+Focus on effect size of vlPFC -> posterolateral putamen
+```{r}
+lm1 <- lm(mean_vlpfc_l.putamen_posterior_l_1 ~ age + gender + dvars, data=fulldata)
+tmp.df <- data.frame(group=fulldata$group, value=lm1$residuals)
+t.test(tmp.df$value[tmp.df$group=='HC'], tmp.df$value[tmp.df$group=='OCD'], var.equal=TRUE)
+cohens_d(x=tmp.df$value[tmp.df$group=='OCD'],
+         y=tmp.df$value[tmp.df$group=='HC'])
+```

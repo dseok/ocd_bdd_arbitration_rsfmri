@@ -1,0 +1,167 @@
+---
+title: "R Notebook"
+---
+
+Demographic tests for BDD and OCD
+
+```{r}
+library(rstudioapi)
+library(dplyr)
+rm(list=ls())
+root <- gsub('feusner.*', 'feusner', getActiveDocumentContext()$path)
+ocdroot <- file.path(root, 'ocd_adult')
+bddroot <- file.path(root, 'bdd')
+
+# set roiset and links
+roiset.name <- 'arbitration_rois'
+link <- 'vlpfc_l.putamen_posterior_l_1'
+
+# function to return fulldata
+return_fulldata <- function(root) {
+    # generate DEC measures
+    decvars <- read.csv(file.path(root, 'data/dec', paste0('summary_', roiset.name, '.csv')),
+                        stringsAsFactors=FALSE)
+    demovars <- read.csv(file.path(root, 'data/metadata/demovars.csv'), stringsAsFactors=FALSE)
+    clinvars <- read.csv(file.path(root, 'data/metadata/clinvars.csv'), stringsAsFactors=FALSE)
+    motionvars <- read.csv(file.path(root, 'data/metadata/motionvars.csv'), stringsAsFactors=FALSE)
+    
+    # add ses column if bdd
+    if (root==bddroot) {
+        links <- colnames(decvars)[-c(1,2)]
+        decvars$ses <- 'baseline'
+        decvars <- decvars[,c('sub', 'ses', 'tp', links)]
+        
+        clinvars$ses <- 'baseline'
+        motionvars$ses <- 'baseline'
+    }
+    
+    # summarize dec
+    # first, drop first 4 timepoints
+    decvars <- decvars[decvars$tp > 4,]
+    
+    # summarize
+    links <- colnames(decvars)[-c(1:3)]
+    decvars.mean <- decvars %>%
+        group_by(sub, ses) %>%
+        summarize_at(links, mean)
+    colnames(decvars.mean)[-c(1:2)] <- paste0('mean_', links)
+    
+    decvars.sd <- decvars %>%
+        group_by(sub, ses) %>%
+        summarize_at(links, sd)
+    colnames(decvars.sd)[-c(1:2)] <- paste0('sd_', links)
+    
+    # merge
+    if (root==bddroot) {
+        fulldata <- merge(demovars, clinvars, by.x='sub', by.y='sub', all.x=TRUE)
+        fulldata$valid <- 1; fulldata$ses <- 'baseline'
+    } else {
+        fulldata <- merge(demovars, clinvars, by.x='sub', by.y='sub')
+    }
+    fulldata <- merge(fulldata, motionvars, by.x=c('sub', 'ses'), by.y=c('sub', 'ses'))
+    fulldata <- merge(fulldata, decvars.mean, by.x=c('sub', 'ses'), by.y=c('sub', 'ses'))
+    fulldata <- merge(fulldata, decvars.sd, by.x=c('sub', 'ses'), by.y=c('sub', 'ses'))
+    
+    # subset
+    fulldata <- fulldata[fulldata$ses=='baseline' & fulldata$valid==1,]#  & fulldata$group!='HC',]
+    return(fulldata)
+}
+
+fulldata.ocd <- return_fulldata(ocdroot)
+fulldata.bdd <- return_fulldata(bddroot)
+
+# edit names of YBOCS
+colnames(fulldata.bdd)[grep('bddybocs_obsessions_compulsions', colnames(fulldata.bdd))] <- 'ybocs'
+colnames(fulldata.bdd)[grep('bddybocs_obsessions', colnames(fulldata.bdd))] <- 'ybocs_obsessions'
+colnames(fulldata.bdd)[grep('ybocs_compulsions', colnames(fulldata.bdd))] <- 'ybocs_compulsions'
+
+fulldata.ocd$ybocs_obsessions <- rowSums(fulldata.ocd[,grep('obsessions', colnames(fulldata.ocd))])
+fulldata.ocd$ybocs_compulsions <- rowSums(fulldata.ocd[,grep('compulsions', colnames(fulldata.ocd))])
+# merge
+fulldata <- rbind(cbind(fulldata.ocd[,c('sub', 'group', 'gender', 'age', 'madrs', 'hama', 'ybocs', 'ybocs_obsessions', 'ybocs_compulsions')], project='OCD'),
+                  cbind(fulldata.bdd[,c('sub', 'group', 'gender', 'age', 'madrs', 'hama', 'ybocs', 'ybocs_obsessions', 'ybocs_compulsions')], project='BDD'))
+
+# save a list of subjects who make it to the final
+write.csv(fulldata[,c('sub', 'project')], file.path(root, 'final_subject_list.csv'), row.names=FALSE, quote=FALSE)
+```
+
+```{r}
+chisq.test(table(fulldata$group, fulldata$gender))
+
+#var.test(fulldata$age[fulldata$project=='OCD'],
+#       fulldata$age[fulldata$project=='BDD'])
+
+t.test(fulldata$age[fulldata$project=='OCD'],
+       fulldata$age[fulldata$project=='BDD'])
+
+
+#var.test(fulldata$ybocs[fulldata$group=='OCD'],
+#         fulldata$ybocs[fulldata$group=='BDD'])
+
+t.test(fulldata$ybocs[fulldata$group=='OCD'],
+       fulldata$ybocs[fulldata$group=='BDD'], var.equal=TRUE)
+
+#var.test(fulldata$ybocs_obsessions[fulldata$group=='OCD'],
+#         fulldata$ybocs_obsessions[fulldata$group=='BDD'])
+
+t.test(fulldata$ybocs_obsessions[fulldata$group=='OCD'],
+       fulldata$ybocs_obsessions[fulldata$group=='BDD'], var.equal=TRUE)
+
+#var.test(fulldata$ybocs_compulsions[fulldata$group=='OCD'],
+#         fulldata$ybocs_compulsions[fulldata$group=='BDD'])
+
+t.test(fulldata$ybocs_compulsions[fulldata$group=='OCD'],
+       fulldata$ybocs_compulsions[fulldata$group=='BDD'], var.equal=TRUE)
+
+#var.test(fulldata$madrs[fulldata$group=='OCD'],
+#         fulldata$madrs[fulldata$group=='BDD'])
+
+t.test(fulldata$madrs[fulldata$group=='OCD'],
+       fulldata$madrs[fulldata$group=='BDD'], var.equal=TRUE)
+
+#var.test(fulldata$hama[fulldata$group=='OCD'],
+#         fulldata$hama[fulldata$group=='BDD'])
+
+t.test(fulldata$hama[fulldata$group=='OCD'],
+       fulldata$hama[fulldata$group=='BDD'], var.equal=TRUE)
+```
+
+```{r}
+# comparing within cohorts
+ocddata <- fulldata[fulldata$project=='OCD',]
+t.test(ocddata$age[ocddata$group=='OCD'],
+       ocddata$age[ocddata$group=='HC'], var.equal=TRUE)
+chisq.test(table(ocddata$gender, ocddata$group))
+
+# MADRS
+t.test(ocddata$madrs[ocddata$group=='OCD'],
+       ocddata$madrs[ocddata$group=='HC'], var.equal=TRUE)
+sd(ocddata$madrs[ocddata$group=='OCD'])
+sd(ocddata$madrs[ocddata$group=='HC'])
+
+# HAMA
+t.test(ocddata$hama[ocddata$group=='OCD'],
+       ocddata$hama[ocddata$group=='HC'], var.equal=TRUE)
+sd(ocddata$hama[ocddata$group=='OCD'])
+sd(ocddata$hama[ocddata$group=='HC'])
+
+
+## BDD ppl
+bdddata <- fulldata[fulldata$project=='BDD',]
+t.test(bdddata$age[bdddata$group=='BDD'],
+       bdddata$age[bdddata$group=='HC'], var.equal=TRUE)
+chisq.test(table(bdddata$gender, bdddata$group))
+# MADRS
+t.test(bdddata$madrs[bdddata$group=='BDD'],
+       bdddata$madrs[bdddata$group=='HC'], var.equal=TRUE)
+sd(bdddata$madrs[bdddata$group=='BDD'])
+sd(bdddata$madrs[bdddata$group=='HC'])
+
+# HAMA
+t.test(bdddata$hama[bdddata$group=='BDD'],
+       bdddata$hama[bdddata$group=='HC'], var.equal=TRUE)
+sd(bdddata$hama[bdddata$group=='BDD'])
+sd(bdddata$hama[bdddata$group=='HC'])
+
+```
+
